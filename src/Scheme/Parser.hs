@@ -11,8 +11,6 @@ import Text.Parsec.String
 
 import Scheme.Types
 
--- FIXME: Ignore line starting with ;
-
 symbol :: Parser Char
 symbol = oneOf "!$%&|*+-/:<=>?@^_~#"
 
@@ -62,11 +60,19 @@ parseQuoted = do
     x <- parseExpr
     return $ List [Atom "quote", x]
 
+parseComment :: Parser LispVal
+parseComment = do
+    char ';'
+    _ <- many (noneOf "\n")
+    next <- parseExpr
+    return next
+
 parseExpr :: Parser LispVal
 parseExpr = parseAtom
         <|> parseString
         <|> parseNumber
         <|> parseQuoted
+        <|> parseComment
         <|> do char '('
                x <- (try parseList) <|> parseDottedList
                char ')'
