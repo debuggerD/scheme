@@ -1,5 +1,9 @@
 module Scheme
-  ( runRepl
+  ( evalString
+  , LispError(..)
+  , LispVal(..)
+  , newEnv
+  , runRepl
   , runOne
   ) where
 

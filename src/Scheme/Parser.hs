@@ -3,78 +3,82 @@ module Scheme.Parser
   , readExprList
   ) where
 
+import Control.Applicative
 import Control.Monad
 import Control.Monad.Except
 
-import Text.Parsec hiding (spaces)
-import Text.Parsec.String
+import Text.Megaparsec
+import qualified Text.Megaparsec.Lexer as L
+import Text.Megaparsec.String
 
 import Scheme.Types
 
-symbol :: Parser Char
-symbol = oneOf "!$%&|*+-/:<=>?@^_~#"
+sc :: Parser () -- ‘sc’ stands for “space consumer”
+sc = L.space (void spaceChar) lineComment empty
+  where lineComment  = L.skipLineComment ";"
+
+symbol :: String -> Parser String
+symbol = L.symbol sc
+
+quotes :: Parser a -> Parser a
+quotes = between (symbol "\"") (symbol "\"")
+
+parens :: Parser a -> Parser a
+parens = between (symbol "(") (symbol ")")
 
 readOrThrow :: Parser a -> String -> ThrowsError a
 readOrThrow parser input = case parse parser "lisp" input of
     Left err -> throwError $ Parser err
     Right val -> return val
 
-spaces :: Parser ()
-spaces = skipMany1 space
-
+readExpr :: String -> ThrowsError LispVal
 readExpr = readOrThrow parseExpr
-readExprList = readOrThrow (endBy parseExpr spaces)
+
+readExprList :: String -> ThrowsError [LispVal]
+readExprList = readOrThrow $ endBy parseExpr sc
+
+lispSymbolChar :: Parser Char
+lispSymbolChar = oneOf "!$%&|*+-/:<=>?@^_~#"
 
 parseString :: Parser LispVal
-parseString = do char '"'
-                 x <- many (noneOf "\"")
-                 char '"'
-                 return $ String x
+parseString = String <$> quotes (many (noneOf "\""))
 
 parseAtom :: Parser LispVal
-parseAtom = do first <- letter <|> symbol
-               rest <- many (letter <|> digit <|> symbol)
-               let atom = [first] ++ rest
+parseAtom = do first <- letterChar <|> lispSymbolChar
+               rest <- many (letterChar <|> digitChar <|> lispSymbolChar)
+               let atom = first : rest
                return $ case atom of
                           "#t" -> Bool True
                           "#f" -> Bool False
                           otherwise -> Atom atom
 
 -- FIXME: Recognize floating point numbers
--- FIXME: Recognize negative numbers
 parseNumber :: Parser LispVal
-parseNumber = liftM (Number . read) $ many1 digit
+parseNumber = do sign <- optional $ oneOf "+-"
+                 digits <- some digitChar
+                 return $ case sign of
+                            Just '-' -> Number . negate . read $ digits
+                            otherwise -> Number . read $ digits
 
 parseList :: Parser LispVal
-parseList = liftM List $ sepBy parseExpr spaces
+parseList = List <$> endBy parseExpr sc
 
 parseDottedList :: Parser LispVal
-parseDottedList = do
-    head <- endBy parseExpr spaces
-    tail <- char '.' >> spaces >> parseExpr
-    return $ DottedList head tail
+parseDottedList = DottedList <$> endBy parseExpr sc <* symbol "." <*> parseExpr
 
 parseQuoted :: Parser LispVal
 parseQuoted = do
-    char '\''
+    symbol "'"
     x <- parseExpr
     return $ List [Atom "quote", x]
 
-parseComment :: Parser LispVal
-parseComment = do
-    char ';'
-    _ <- many (noneOf "\n")
-    next <- parseExpr
-    return next
+parseDottedListOrList :: Parser LispVal
+parseDottedListOrList = parens (try parseDottedList <|> parseList)
 
 parseExpr :: Parser LispVal
-parseExpr = parseAtom
+parseExpr = try parseNumber
+        <|> parseAtom
         <|> parseString
-        <|> parseNumber
         <|> parseQuoted
-        <|> parseComment
-        <|> do char '('
-               x <- (try parseList) <|> parseDottedList
-               char ')'
-               return x
+        <|> parseDottedListOrList
 

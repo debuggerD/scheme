@@ -1,22 +1,32 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
 module Scheme.Types
   ( Env
+  , liftThrows
   , LispError(..)
   , LispVal(..)
-  , IOThrowsError
   , showVal
   , ThrowsError
+  , EvalM(..)
   ) where
 
 import Control.Monad.Except
+import Control.Monad.Reader
 import Data.IORef
 import System.IO
-import Text.Parsec
+import Text.Megaparsec
 
 type ThrowsError = Either LispError
-type IOThrowsError = ExceptT LispError IO
 
 -- FIXME:: Use Data.StRef instead of Data.IORef.
 type Env = IORef [(String, IORef LispVal)]
+newtype EvalM a = EvalM {
+        run :: (ReaderT Env (ExceptT LispError IO) a)
+    } deriving (Functor, Applicative, Monad, MonadIO, MonadReader Env, MonadError LispError)
+
+liftThrows :: ThrowsError a -> EvalM a
+liftThrows (Left err) = EvalM $ lift $ throwError err
+liftThrows (Right val) = EvalM $ lift $ return val
 
 data LispVal = Atom String
              | List [LispVal]
@@ -26,9 +36,18 @@ data LispVal = Atom String
              | Bool Bool
              | Port Handle
              | PrimitiveFunc ([LispVal] -> ThrowsError LispVal)
-             | IOFunc ([LispVal] -> IOThrowsError LispVal)
+             | IOFunc ([LispVal] -> EvalM LispVal)
              | Func {params :: [String], vararg :: (Maybe String),
                       body :: [LispVal], closure :: Env}
+
+instance Eq LispVal where
+  (Bool arg1) == (Bool arg2) = arg1 == arg2
+  (Number arg1) == (Number arg2) = arg1 == arg2
+  (String arg1) == (String arg2) = arg1 == arg2
+  (Atom arg1) == (Atom arg2) = arg1 == arg2
+  (DottedList xs x) == (DottedList ys y) = xs == ys && x == y
+  (List arg1) == (List arg2) = arg1 == arg2
+  _ == _ = False
 
 showVal :: LispVal -> String
 showVal (String contents) = "\"" ++ contents ++ "\""
@@ -55,7 +74,7 @@ data LispError = NumArgs Integer [LispVal]
                | BadSpecialForm String LispVal
                | NotFunction String String
                | UnboundVar String String
-               | Default String
+               deriving (Eq)
 
 showError :: LispError -> String
 showError (UnboundVar message varname) = message ++ ": " ++ varname
