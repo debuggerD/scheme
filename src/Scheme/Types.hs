@@ -74,6 +74,7 @@ data LispError = NumArgs Integer [LispVal]
                | BadSpecialForm String LispVal
                | NotFunction String String
                | UnboundVar String String
+               | NothingToDo
                deriving (Eq)
 
 showError :: LispError -> String
@@ -85,6 +86,7 @@ showError (NumArgs expected found) = "Expected " ++ show expected
 showError (TypeMismatch expected found) = "Invalid type: expected " ++ expected
                                        ++ ", found " ++ show found
 showError (Parser parseErr) = "Parse error at " ++ show parseErr
+showError NothingToDo = ""
 
 instance Show LispError where show = showError
 

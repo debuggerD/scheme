@@ -32,7 +32,12 @@ readOrThrow parser input = case parse parser "lisp" input of
     Right val -> return val
 
 readExpr :: String -> ThrowsError LispVal
-readExpr = readOrThrow $ sc >> parseExpr
+readExpr input = case parse (sc >> parseExpr) "lisp" linedInput of
+    Left err -> case parse (sc >> eof) "lisp" linedInput of
+        Left _ -> throwError $ Parser err
+        Right _ -> throwError NothingToDo
+    Right val -> return val
+    where linedInput = (input ++ "\n")
 
 readExprList :: String -> ThrowsError [LispVal]
 readExprList = readOrThrow $ endBy parseExpr sc
